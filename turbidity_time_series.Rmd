@@ -1,0 +1,123 @@
+---
+title: "EDS_222_delta-turbidity-analysis"
+author: "Steven Cognac"
+date: "11/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dataRetrieval) 
+library(tidyverse)
+library(here)
+library(patchwork)
+library(readr)
+```
+
+USGS API sources
+ - https://cran.r-project.org/web/packages/dataRetrieval/vignettes/dataRetrieval.html#daily-data
+ - https://dashboard.waterdata.usgs.gov/app/nwd/?region=lower48&aoi=default
+
+## Read in Data
+
+```{r}
+wq_data_raw <- read_csv(here("data", "wq_data_raw.csv")) %>% 
+  
+  # add slough names
+  mutate(slough = case_when(site_no == "11455278" ~ "hass",
+                            site_no == "11455315" ~ "cache",
+                            site_no == "11455276" ~ "shag",
+                            site_no == "11455335" ~ "sacramento",
+                            site_no == "11455165" ~ "miners",
+                            site_no == "11455140" ~ "toe_drain"))
+```
+
+```{r}
+# duplicate turbidity columns. Indicates different project. Need to include all columns that indicate "63680"
+# see example here: https://waterdata.usgs.gov/nwis/uv/?site_no=11455315
+colnames(wq_data_raw)
+```
+
+https://or.water.usgs.gov/grapher/fnu.html
+
+## Tidy Dataframe
+```{r}
+wq_data <- wq_data_raw %>% 
+  
+  # finds mean across rows with turbidity values.  When only 1 value, that value is used.
+  mutate(turbidity_fnu = rowMeans(wq_data_raw[, c("X_63680_00000",
+                                                  "X_.BGC.Project._63680_00000",
+                                                  "X_BGC.PROJECT_63680_00000",
+                                                  "X_CHLOR.INTERCAL.PROJECT...CHLOR.INTERCAL.PROJECT._63680_00000",
+                                                  "X_.TS213..YSI.EXO._63680_00000")], na.rm = TRUE)) %>% 
+  
+  # turbidity readings over 300 FNU are nearly impossible
+  filter(turbidity_fnu <= 300) %>% 
+  
+  rename("gage_height" = "X_00065_00000",
+         "water_velocity" = "X_72137_00000",
+         "tidal_filt_disch" = "X_72255_00000") %>%
+  select("dateTime",
+         "slough",
+         "site_no",
+         "gage_height",
+         "turbidity_fnu",
+         "water_velocity",
+         "tidal_filt_disch")
+
+# convert NaN values to NA
+wq_data$turbidity_fnu[is.nan(wq_data$turbidity_fnu)]<-NA
+```
+
+
+```{r}
+ggplot(wq_data, aes(x = dateTime, y = turbidity_fnu, color = slough)) +
+  geom_line()
+```
+
+
+```{r}
+print(lapply(wq_data, class))
+print(unique(wq_data$slough))
+```
+
+```{r}
+# calculate means 5 sloughs
+wq_data_means <- wq_data %>% 
+  group_by(dateTime) %>% 
+  summarize(turbidity_fnu = mean(turbidity_fnu),
+            water_velocity = mean(water_velocity), 
+            tidal_filt_disch = mean(tidal_filt_disch), 
+            gage_height = mean(gage_height),
+            slough="all")
+
+
+wq_joined <- bind_rows(wq_data, wq_data_means)
+
+#wq_joined <- left_join(wq_data, wq_data_means, by = "dateTime")
+```
+
+
+```{r}
+sites <- c("all", "cache")
+
+wq_joined %>% 
+  filter(slough %in% sites) %>% 
+ggplot(aes(x = dateTime, y = turbidity_fnu, color = slough)) +
+  geom_line() +
+  scale_x_datetime(limits = c(min(wq_joined$dateTime), max(wq_joined$dateTime)))
+```
+
+
+
+
+
+```{r}
+turb_filt <- wq_data_filt %>% 
+  filter(slough = "miner")
+
+ggplot(turb_filt, aes(x = dateTime, y = turbidity_fnu)) +
+  geom_line()
+```
+

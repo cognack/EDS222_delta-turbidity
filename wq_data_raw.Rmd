@@ -1,0 +1,70 @@
+---
+title: "data_download"
+author: "Steven Cognac"
+date: "11/29/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dataRetrieval) 
+library(tidyverse)
+library(here)
+library(patchwork)
+library(readr)
+library(janitor)
+library(feasts)
+
+```
+
+## Turbidity and Gage Height Data
+
+Acquired from the USGS online portal.  Data aqcuired from January 1, 2015 through September 30, 2021.
+
+```{r}
+# Hass, Cache, Shag, Sacramento Deepwater Channel, Miners, and Toe Drain slough in inland delta
+siteNumbers <- c(11455278, 11455315, 11455276, 11455335, 11455165, 11455140)
+
+# gage height, turbidity (FNU), mean water velocity (ft per sec) discharge, tidally filtered (cfs)
+parameterCd <- c("00065", "63680","72255", "72137") 
+startDate <- "2015-10-01" # use "" to grab entire data from beginning of recording
+endDate <- "2021-09-30"
+tz = "PST"
+
+siteInfo <- readNWISsite(siteNumbers)
+siteInfo
+
+```
+
+```{r}
+# create database based on above parameters
+wq_data_raw <- readNWISuv(siteNumbers, parameterCd, startDate, endDate, tz)
+```
+
+```{r}
+write_csv(x = wq_data_raw,here("data", "wq_data_raw.csv"))
+```
+
+```{r}
+colnames(wq_data_raw)
+```
+
+## Wind Data
+
+Data downloaded from the NOAA National Centers for Environmental Information (NCEI) Climate Data Online search tool for "Daily Summaries": https://www.ncdc.noaa.gov/cdo-web/search?datasetid=GHCND
+
+Wind data downloaded for two locations
+ - Travis Air Force Base (station no. WBAN:23202)[https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/stations/GHCND:USW00023202/detail]
+ - Sacramento Municipal Airport (station no. GHCND:USW00023232)[https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/stations/GHCND:USW00023232/detail]
+- 
+
+
+
+# Stations	WBAN:23202
+# Begin Date	2015-09-01 00:00
+# End Date	2021-09-30 23:59
+```{r}
+
+```
+
