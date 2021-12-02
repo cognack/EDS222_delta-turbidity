@@ -1,0 +1,51 @@
+---
+title: "Figures"
+author: "Steven Cognac"
+date: "11/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(mapview)
+library(sf)
+library(here)
+
+```
+
+# Created from Google Earth and downloaded as a .kml
+```{r, echo=FALSE}
+cache <- st_read(here("data", "cache.kml"))
+```
+
+
+```{r}
+
+lat <- c(38.34917, 38.29167, 38.30786, 38.29415, 38.24301, 38.25611, 38.513, 38.378, 37.99)
+lon <- c(-121.6447, -121.6308, -121.6924, -121.7257, -121.6843, -121.6667, -121.494, -121.962,-122.057)
+id <- c("toe_drain", "miner", "shag", "hass", "cache", "sacramento", "Sacramento Execuative AP", "Vacaville Nut Tree AP", "Concord Buchanan AP")
+type <- c("water quality","water quality","water quality","water quality","water quality","water quality","wind","wind","wind")
+
+points <- as.data.frame(cbind(id, type,lat, lon))
+
+# combine into single dataframe and convert columns to numeric
+points <- points %>% 
+  mutate(lat = as.numeric(lat),
+         lon = as.numeric(lon)) %>% 
+  as_tibble()
+
+```
+
+
+```{r}
+locations_sf <- st_as_sf(points, coords = c("lon", "lat"), crs = 4326)
+```
+
+
+## Plot map
+```{r}
+mapview(locations_sf["type"], layer.name = "Station Type") +
+  mapview(cache, layer.name = "Cache Shag Slough Complex")
+```
+

@@ -2,17 +2,25 @@
 title: "EDS_222_delta-turbidity-analysis"
 author: "Steven Cognac"
 date: "11/25/2021"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 
 library(dataRetrieval) 
 library(tidyverse)
 library(here)
 library(patchwork)
 library(readr)
+library(feasts)
+library(lubridate)
+library(tsibble)
+library(mapview)
+library(sf)
+
 ```
 
 USGS API sources
@@ -21,6 +29,7 @@ USGS API sources
 
 ## Read in Data
 
+### Water Quality Data
 ```{r}
 wq_data_raw <- read_csv(here("data", "wq_data_raw.csv")) %>% 
   
@@ -33,15 +42,33 @@ wq_data_raw <- read_csv(here("data", "wq_data_raw.csv")) %>%
                             site_no == "11455140" ~ "toe_drain"))
 ```
 
+https://or.water.usgs.gov/grapher/fnu.html
+
 ```{r}
 # duplicate turbidity columns. Indicates different project. Need to include all columns that indicate "63680"
 # see example here: https://waterdata.usgs.gov/nwis/uv/?site_no=11455315
 colnames(wq_data_raw)
 ```
 
-https://or.water.usgs.gov/grapher/fnu.html
+### Wind Data
+```{r}
+wind_vaca_raw <- read_csv(here("data", "2805190_vacaville.csv")) %>% 
+  select(2,56:58) %>% 
+  filter(DATE > "2014-12-31 23:59:00")
 
-## Tidy Dataframe
+wind_sac_raw <- read_csv(here("data", "2805192_sacramento.csv")) %>% 
+  select(2,56:58) %>% 
+  filter(DATE > "2014-12-31 23:59:00")
+
+wind_concord_raw <- read_csv(here("data", "2805195_concord.csv")) %>% 
+  select(2,56:58) %>% 
+  filter(DATE > "2014-12-31 23:59:00")
+
+```
+
+## Tidy Dataframes
+
+### Water Quality Data
 ```{r}
 wq_data <- wq_data_raw %>% 
   
@@ -52,30 +79,61 @@ wq_data <- wq_data_raw %>%
                                                   "X_CHLOR.INTERCAL.PROJECT...CHLOR.INTERCAL.PROJECT._63680_00000",
                                                   "X_.TS213..YSI.EXO._63680_00000")], na.rm = TRUE)) %>% 
   
-  # turbidity readings over 300 FNU are nearly impossible
-  filter(turbidity_fnu <= 300) %>% 
-  
-  rename("gage_height" = "X_00065_00000",
+  rename("DATE" = "dateTime",
+         "gage_height" = "X_00065_00000",
          "water_velocity" = "X_72137_00000",
          "tidal_filt_disch" = "X_72255_00000") %>%
-  select("dateTime",
+    
+  # turbidity readings over 300 FNU are nearly impossible
+  filter(turbidity_fnu <= 300,
+         DATE > "2014-12-31 23:59:00") %>% 
+  
+  select("DATE",
          "slough",
-         "site_no",
          "gage_height",
          "turbidity_fnu",
-         "water_velocity",
-         "tidal_filt_disch")
+         # "water_velocity",
+         # "tidal_filt_disch"
+         )
 
 # convert NaN values to NA
 wq_data$turbidity_fnu[is.nan(wq_data$turbidity_fnu)]<-NA
+
+write_csv(wq_data, here("data", "wq_data_cleaned.csv"))
+
+rm(wq_data_raw)
 ```
 
 
-```{r}
-ggplot(wq_data, aes(x = dateTime, y = turbidity_fnu, color = slough)) +
-  geom_line()
-```
+```{r Figure1, echo=FALSE, fig.align = 'center', out.width = "30%", fig.cap = "Map of wind and water station locations", results = 'markup'}
+# load CSC polygon (created in Google Earth)
+cache <- st_read(here("data", "cache.kml"))
 
+# bootstrap geometries
+lat <- c(38.34917, 38.29167, 38.30786, 38.29415, 38.24301, 38.25611, 38.513, 38.378, 37.99)
+lon <- c(-121.6447, -121.6308, -121.6924, -121.7257, -121.6843, -121.6667, -121.494, -121.962,-122.057)
+id <- c("toe_drain", "miner", "shag", "hass", "cache", "sacramento", "Sacramento Execuative AP", "Vacaville Nut Tree AP", "Concord Buchanan AP")
+type <- c("water quality","water quality","water quality","water quality","water quality","water quality","wind","wind","wind")
+
+points <- as.data.frame(cbind(id, type,lat, lon))
+
+# combine into single dataframe and convert columns to numeric
+points <- points %>% 
+  mutate(lat = as.numeric(lat),
+         lon = as.numeric(lon)) %>% 
+  as_tibble()
+
+# convert to sf object
+locations_sf <- st_as_sf(points, coords = c("lon", "lat"), crs = 4326)
+
+# interactive map
+my_map <- mapview(locations_sf["type"], layer.name = "Station Type") +
+  mapview(cache, layer.name = "Cache Shag Slough Complex")
+
+# map imaage export
+mapshot(my_map, file = here("images", "map_plot.jpeg"))
+
+```
 
 ```{r}
 print(lapply(wq_data, class))
@@ -83,41 +141,305 @@ print(unique(wq_data$slough))
 ```
 
 ```{r}
-# calculate means 5 sloughs
-wq_data_means <- wq_data %>% 
-  group_by(dateTime) %>% 
-  summarize(turbidity_fnu = mean(turbidity_fnu),
-            water_velocity = mean(water_velocity), 
-            tidal_filt_disch = mean(tidal_filt_disch), 
+ggplot(wq_data, aes(x = DATE, y = turbidity_fnu, color = slough)) +
+  geom_line(alpha = 0.5)
+```
+
+## Calcualte averages for turbidity & gage height for all 5 stations
+```{r}
+wq_data_all <- wq_data %>% 
+  group_by(DATE) %>% 
+  summarize(turbidity_fnu = mean(turbidity_fnu), 
             gage_height = mean(gage_height),
             slough="all")
 
+# Compare combined statsions to all
+# wq_joined <- rbind(wq_data, wq_data_avg) %>% 
+#  group_by(slough)
 
-wq_joined <- bind_rows(wq_data, wq_data_means)
+# remove NA values
+# wq_joined <- wq_joined[!duplicated(wq_joined$DATE), ]
 
-#wq_joined <- left_join(wq_data, wq_data_means, by = "dateTime")
+# create tsibble
+# wq_tsbl <- as_tsibble(wq_filt, key = slough, index = DATE)
+```
+
+
+
+### Wind Data
+
+```{r}
+# vacaville nut tree airport
+wind_vaca <- wind_vaca_raw %>%
+  mutate(station = "vacaville",
+         DATE = lubridate::floor_date(DATE, "hours")) %>%
+  group_by(DATE, station) %>% 
+  summarise(HourlyWindSpeed)
+
+wind_vaca <- wind_vaca[!duplicated(wind_vaca$DATE), ]
+
+# sacramento airport
+wind_sac <- wind_sac_raw %>%
+  mutate(station = "sacramento",
+         DATE = lubridate::floor_date(DATE, "hours")) %>%
+  group_by(DATE, station) %>% 
+  summarise(HourlyWindSpeed)
+
+# remove duplcate values
+wind_sac <- wind_sac[!duplicated(wind_sac$DATE), ]
+
+# concord airport
+wind_concord <- wind_concord_raw %>%
+  mutate(station = "concord",
+         DATE = lubridate::floor_date(DATE, "hours")) %>%
+  group_by(DATE, station) %>% 
+  summarise(HourlyWindSpeed)
+
+wind_concord <- wind_concord[!duplicated(wind_concord$DATE), ]
+
+
+# combine dataframes
+wind <- rbind(wind_vaca, wind_sac, wind_concord)
+
+write_csv(wind, here("data", "wind_cleaned.csv"))
+
+rm(wind_concord_raw, wind_concord, wind_sac_raw,wind_sac, wind_vaca_raw, wind_vaca)
 ```
 
 
 ```{r}
-sites <- c("all", "cache")
+class(wind)
+lapply(wind, class)
+```
 
-wq_joined %>% 
-  filter(slough %in% sites) %>% 
-ggplot(aes(x = dateTime, y = turbidity_fnu, color = slough)) +
-  geom_line() +
-  scale_x_datetime(limits = c(min(wq_joined$dateTime), max(wq_joined$dateTime)))
+## Calcualte average hourly wind speed for three stations
+```{r}
+wind_all <- wind %>% 
+  group_by(DATE) %>% 
+  summarize(HourlyWindSpeed = mean(HourlyWindSpeed)) %>% 
+  mutate(station = "vaca_sac_concord")
+
+# combine datasets
+wind_join <- rbind(wind, wind_all)
+wind_tsbl <- wind_join %>% as_tsibble(key = station)
+
 ```
 
 
-
-
+## Combine Water Quality and Wind Data
 
 ```{r}
-turb_filt <- wq_data_filt %>% 
-  filter(slough = "miner")
+df <- left_join(wq_data_all, wind_all, by = "DATE") %>% 
+  filter(DATE > "2015-09-01 00:00:00") %>% 
+  na.omit()
 
-ggplot(turb_filt, aes(x = dateTime, y = turbidity_fnu)) +
-  geom_line()
+colnames(df)
 ```
+
+
+
+
+## Linear regression on entire dataset
+```{r}
+turbidity_lm1 <- lm(turbidity_fnu ~ HourlyWindSpeed + gage_height, data = df)
+
+turbidity_lm1_sum <- summary(turbidity_lm1)
+turbidity_lm1_sum
+```
+
+
+## Scatterplots
+
+Hourly Turbidity scatterplot with regression line.  Shows general downwards trend from 2015-2021
+```{r}
+# scatter plot with OLS regression line
+ols_plot <- ggplot(data = df, aes(x = DATE, y = turbidity_fnu)) +
+  geom_line(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = lm, formula= y~x, se = FALSE) +
+  labs(title = "Turbidity (Hourly)",
+       subtitle = "2015-2021",
+       y = "Turbidity (FNU)",
+       x = "Date")
+  
+
+# create predictions and residuals
+predictions <- df %>% modelr::add_predictions(turbidity_lm) %>%
+  mutate(residuals = turbidity_fnu-pred)
+
+# histogram of residuals
+resid_hist <- ggplot(data=predictions) + geom_histogram(aes(residuals), bins=40) +
+  labs(subtitle = "Residual Plot")
+
+# qq-plot
+qq_plot <- ggplot(predictions, aes(sample = residuals)) +
+  geom_qq(color = "deepskyblue3") +
+  geom_qq_line() +
+    labs(subtitle = "Q-Q Plot",
+       x = "Theoretical Quantiles",
+       y = "Standardized Residuals")
+
+ols_plot + (resid_hist / qq_plot) + plot_annotation(title = "OLS Regression and Explanatory Plots")
+```
+
+
+# Boxplots of Independent Variables
+```{r Figure4, echo=FALSE, fig.align = 'center', out.width = "70%", fig.cap = "Histogram and box plots of independnet and dependent variables", results = 'markup'}
+# Histograms
+hist_turbidity<- ggplot(data = df, aes(x = turbidity_fnu)) +
+  geom_histogram(bins = 40) +
+  labs(x = "Turbidity (FNU)")
+hist_wind <- ggplot(data = df, aes(x = HourlyWindSpeed)) +
+  geom_histogram(bins = 40) +
+  labs(x = "Wind Speed (mpg)")
+hist_gage <- ggplot(data = df, aes(x = gage_height)) +
+  geom_histogram(bins = 40) +
+  labs(x = "Gage Height (ft)")
+
+# boxplots
+box_turbidity<- ggplot(data = df, aes(x = turbidity_fnu)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=3,
+                outlier.size=4) +
+  labs(x = "Turbidity (FNU)")
+box_wind <- ggplot(data = df, aes(x = HourlyWindSpeed)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=3,
+                outlier.size=4) +
+  labs(x = "Wind Speed (mpg)")
+box_gage <- ggplot(data = df, aes(x = gage_height)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=3,
+                outlier.size=4) +
+  labs(x = "Gage Height (ft)")
+
+
+explore_plots <- (hist_turbidity + hist_wind + hist_gage) / 
+  (box_turbidity + box_wind + box_gage) + 
+  plot_annotation(caption = 'Source: NOAA NCEI and USGS',
+                  tag_levels = 'A')
+explore_plots
+ggsave(here("images","hist_box_plots.png"), width = 7, height = 3)
+```
+
+
+`
+
+```{r}
+
+# time period options: as.Date(.), yearweek(.), yearmonth(.), yearquarter(.), lubridate::floor_date(., "4 hour")
+
+# interval = lubridate::floor_date(., "4 hours")
+
+df_tsbl <- df %>% 
+  as_tsibble %>% 
+  group_by_key() %>% 
+  
+  # every 2 hours
+  index_by(time = ~as.Date(.)) %>% 
+  summarise(turbidity_fnu = mean(turbidity_fnu, na.rm = TRUE),
+            gage_height = mean(gage_height, na.rm = TRUE),
+            HourlyWindSpeed = mean(HourlyWindSpeed, na.rm = TRUE)) %>% 
+  na.omit()
+
+df_tsbl
+
+```
+## Plot Combined Datasets
+```{r}
+hourly_plot <- ggplot(df, aes(x = DATE, y = turbidity_fnu)) +
+  geom_line(size = 0.4, alpha = 0.8, show.legend = FALSE) +
+  
+  geom_line(data = df, aes(x = DATE, y = HourlyWindSpeed, color = "firebrick2"), alpha = 0.9, size = 0.3) +
+  geom_line(data = df, aes(x = DATE, y = gage_height, color = "deepskyblue2"), alpha = 0.6) +
+  ylim(0, 35) +
+  scale_x_datetime(limits = as.POSIXct(c("2019-09-30", "2020-10-01"))) +
+  labs(title = "Turbidity, Wind Speed, and Gage Height Comparison",
+       subtitle = "Hourly Averages",
+       x = "Date",
+       y = "Turbidity, Wind, & Gage Height") +
+  scale_color_discrete(name = "", labels = c("Gage Height (ft)", "Wind Speed (mph)"))
+
+hourly_plot
+```
+
+
+```{r Figure4, echo=FALSE, fig.align = 'center', out.width = "20%", fig.cap = "Correlation plots of turbidity compared to wind speed and gage height", results = 'markup'}
+daily_plot <- ggplot(df_tsbl, aes(x = time, y = turbidity_fnu)) +
+  geom_line(size = 0.4, alpha = 0.6) +
+  geom_line(data = df_tsbl, aes(x = time, y = HourlyWindSpeed, color = "firebrick2", col="Wind"), alpha = 0.9, size = 0.3) +
+  geom_line(data = df_tsbl, aes(x = time, y = gage_height, color = "deepskyblue2"), alpha = 0.6) +
+  ylim(0, 35) +
+  scale_x_date(limits = as.Date(c("2019-09-30", "2020-10-01"))) +
+  labs(subtitle = "Daily Averages",
+       x = "Date") +
+  ylab(NULL) +
+  scale_color_discrete(name = "", labels = c("Gage Height (ft)", "Wind Speed (mph)"))
+
+compare_plot <- (hourly_plot / daily_plot) + 
+  plot_layout(guides = "collect")
+
+ggsave(here("images","compare_plot.png"))
+compare_plot
+
+
+```
+
+
+
+**2.1a Response**\
+
+ - **The intercept ($beta_0$) estimate tells us that when mean number of Frost days (i.e. days with a minimum temp below freezing) is zero , we predict 11.38 murders per 100,000 population, in 1976.**\
+ - **The coefficient($beta_1$) on Frost tells us that for each 1 day increase in mean number of Frost days, we expect the murder rate to decrease by 0.04 murders per 100,000 population, in 1976.**\
+
+## Linear regression on smoothed dataset
+```{r}
+turbidity_lm <- lm(turbidity_fnu ~ HourlyWindSpeed + gage_height, data = df_tsbl)
+
+turbidity_lm_sum <- summary(turbidity_lm)
+turbidity_lm_sum
+
+summ(turbidity_lm)
+```
+
+
+```{r Figure3, echo=FALSE, fig.align = 'center', out.width = "60%", fig.cap = "Correlation plots of turbidity compared to wind speed and gage height", results = 'markup'}
+wind_plot_daily <- ggplot(data = df_tsbl, aes(x = HourlyWindSpeed, y = turbidity_fnu, show.legend = FALSE)) +
+  geom_point(size = 0.3, alpha = 0.1, show.legend = FALSE) +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(title = "Wind Speed vs Turbidity",
+       subtitle = "Daily",
+       x = "Wind Speed (mph)",
+       y = "Turbidity (FNU")
+
+gage_plot_daily <- ggplot(data = df_tsbl, aes(x = gage_height, y = turbidity_fnu)) +
+  geom_point(size = 0.3, alpha = 0.1, show.legend = FALSE) +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(title = "Gage Height vs Turbidity",
+       subtitle = "Daily",
+       x = "Gage Height (feet)",
+       y = "Turbidity (FNU)")
+
+
+wind_plot_hourly <- ggplot(data = df, aes(x = HourlyWindSpeed, y = turbidity_fnu, show.legend = FALSE)) +
+  geom_point(size = 0.3, alpha = 0.1, show.legend = FALSE) +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(subtitle = "Hourly",
+       x = "Wind Speed (mph)",
+       y = "Turbidity (FNU")
+
+gage_plot_hourly <- ggplot(data = df, aes(x = gage_height, y = turbidity_fnu)) +
+  geom_point(size = 0.3, alpha = 0.1, show.legend = FALSE) +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(subtitle = "Hourly",
+       x = "Gage Height (feet)",
+       y = "Turbidity (FNU)")
+
+(wind_plot_daily + gage_plot_daily) / (wind_plot_hourly + gage_plot_hourly) +
+  theme_minimal()
+
+ggsave(here("images","simple_visual.png"), width = 7, height = 3)
+
+```
+
+
+
+
+
 

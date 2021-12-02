@@ -54,17 +54,20 @@ colnames(wq_data_raw)
 
 Data downloaded from the NOAA National Centers for Environmental Information (NCEI) Climate Data Online search tool for "Daily Summaries": https://www.ncdc.noaa.gov/cdo-web/search?datasetid=GHCND
 
-Wind data downloaded for two locations
- - Travis Air Force Base (station no. WBAN:23202)[https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/stations/GHCND:USW00023202/detail]
- - Sacramento Municipal Airport (station no. GHCND:USW00023232)[https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/stations/GHCND:USW00023232/detail]
-- 
+Wind data downloaded for three locations
+ - Antioch Pumping Plant Number 3 (station ID: GHCND:USW00093241)
+ - Sacramento Municipal Airport (station ID: GHCND:USW00023232)
+ - Vacaville Nut Tree Airport (Station ID: GHCND:USC00040232)
 
-
-
+sacramento airport metadata - https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/stations/GHCND:USW00023232/detail
 # Stations	WBAN:23202
 # Begin Date	2015-09-01 00:00
 # End Date	2021-09-30 23:59
 ```{r}
+wind_antioch_raw <- read_csv(here("data", "2802840_travis_afb.csv"))
 
+wind_sac_raw <- read_csv(here("data", "2805157_sacramento.csv"))
+
+wind_vaca_raw <- read_csv(here("data", ""))
 ```
 

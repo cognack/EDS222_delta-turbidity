@@ -18,6 +18,7 @@ library(feasts)
 #library(slider)
 library(lubridate)
 library(tibbletime)
+library(tsibble)
 ```
 
 Data downloaded from the NOAA National Centers for Environmental Information (NCEI) Climate Data Online search tool for Local Climatological Data (LCD) - (https://www.ncdc.noaa.gov/cdo-web/datatools/lcd)
@@ -36,113 +37,127 @@ Stations
 
 sacramento airport metadata - https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/stations/GHCND:USW00023232/detail
 
-```{r}
-wind_vaca_raw <- read_csv(here("data", "2805190_vacaville.csv")) %>%
-  as_tsibble(index = DATE, key = HourlyWindSpeed)
-```
-
-
+# Read in Data
 ```{r}
 wind_vaca_raw <- read_csv(here("data", "2805190_vacaville.csv")) %>% 
   select(2,56:58) %>% 
-  filter(DATE > "2014-12-31 23:59:00") %>% 
-  as_tbl_time(index = DATE) %>% 
-  mutate(station = "vacaville")
+  filter(DATE > "2014-12-31 23:59:00")
 
 wind_sac_raw <- read_csv(here("data", "2805192_sacramento.csv")) %>% 
   select(2,56:58) %>% 
-  filter(DATE > "2014-12-31 23:59:00") %>% 
-  as_tbl_time(index = DATE) %>% 
-  mutate(station = "sacramento_airport")
+  filter(DATE > "2014-12-31 23:59:00")
 
 wind_concord_raw <- read_csv(here("data", "2805195_concord.csv")) %>% 
   select(2,56:58) %>% 
-  filter(DATE > "2014-12-31 23:59:00") %>% 
-  as_tbl_time(index = DATE) %>% 
-  mutate(station = "concord")
-
-wind_raw <- rbind(wind_vaca_raw, wind_sac_raw, wind_concord_raw)
-
-# mutate(DATE = as_datetime(DATE,"%Y-%m-%d %H:%M:%s"))
+  filter(DATE > "2014-12-31 23:59:00")
 
 ```
 
 ```{r}
-wind_vaca_raw
+# vacaville nut tree airport
+wind_vaca <- wind_vaca_raw %>%
+  mutate(station = "vacaville",
+         DATE = lubridate::floor_date(DATE, "hours")) %>%
+  group_by(DATE, station) %>% 
+  summarise(HourlyWindSpeed)
+
+wind_vaca <- wind_vaca[!duplicated(wind_vaca$DATE), ]
+
+# sacramento airport
+wind_sac <- wind_sac_raw %>%
+  mutate(station = "sacramento",
+         DATE = lubridate::floor_date(DATE, "hours")) %>%
+  group_by(DATE, station) %>% 
+  summarise(HourlyWindSpeed)
+
+wind_sac <- wind_sac[!duplicated(wind_sac$DATE), ]
+
+# concord airport
+wind_concord <- wind_concord_raw %>%
+  mutate(station = "concord",
+         DATE = lubridate::floor_date(DATE, "hours")) %>%
+  group_by(DATE, station) %>% 
+  summarise(HourlyWindSpeed)
+
+wind_concord <- wind_concord[!duplicated(wind_concord$DATE), ]
+
+
+# combine dataframes
+wind <- rbind(wind_vaca, wind_sac, wind_concord)
+
+rm(wind_concord_raw, wind_concord, wind_sac_raw,wind_sac, wind_vaca_raw, wind_vaca)
 ```
 
 
 ```{r}
-class(wind_vaca_raw)
-lapply(wind_vaca_raw, class)
+wind
+class(wind)
+lapply(wind, class)
 ```
+
+## Calcualte average hourly wind speed for three stations
+```{r}
+wind_all <- wind %>% 
+  group_by(DATE) %>% 
+  summarize(HourlyWindSpeed = mean(HourlyWindSpeed)) %>% 
+  mutate(station = "vaca_sac_concord")
+
+# combine datasets
+wind_join <- rbind(wind, wind_all)
+wind_tsbl <- wind_join %>% as_tsibble(key = station)
+
+```
+
+
 
 https://blog.earo.me/2018/02/06/tsibble-or-tibbletime/
 
 ```{r}
-#set time interval.  Can be by day, month, hour, year, etc.
-interval = "2 hours"
 
-wind <- wind_raw %>% 
-  group_by(station) %>% 
-  collapse_by(period = interval) %>% 
-  group_by(DATE, station) %>% 
-  summarise(
-    wind_avg = mean(HourlyWindSpeed, na.rm = TRUE)
-  )
+# time period options: as.Date(.), yearweek(.), yearmonth(.), yearquarter(.), lubridate::floor_date(., "4 hour")
 
-ggplot(wind, aes(x = DATE, y = wind_avg, color = station)) +
-  geom_line()
+# interval = lubridate::floor_date(., "4 hours")
+
+wind_avg <- wind_tsbl %>% 
+  group_by_key() %>% 
+  
+  # every 2 hours
+  index_by(time = ~yearweek(.)) %>% 
+  summarise(wind_speed = mean(HourlyWindSpeed, na.rm = TRUE)) %>% 
+  na.omit()
+
+wind_avg
 ```
 
 ```{r}
-# calculate 5-day moving average
-# wind is hourly
+wind_avg %>% 
+  filter(station == "vaca_sac_concord") %>% 
+  
+ggplot(aes(x = time, y = wind_speed)) +
+  geom_line(color = "firebrick2", alpha = 0.5) +
+  geom_smooth() +
+  labs(title = "Average Hourly Wind Speed",
+       subtitle = "Cache Slough Complex, Solano County, California",
+       x = "Date",
+       y = "Wind Speed (mph)",
+       caption = "Source: NOAA NCEI. Station WBAN No. 93241, 23232, & 23254")
 
-wind_decomp <- wind_raw %>% 
-  as_tsibble() %>% 
-  select(DATE, HourlyWindSpeed) %>% 
-  model(decomposition_model(HourlyWindSpeed, type = "additive")) %>% 
-  components() %>% 
+```
+
+
+
+
+```{r}
+decomp <- wind_avg %>% 
+  filter(station == "vaca_sac_concord") %>%
+  model(classical_decomposition(wind_speed, type = "additive")) %>%
+  components() %>%
   autoplot()
-
-
-```
-```{r}
-vaca <- wind_vaca_raw %>% 
-  mutate(ma = slider::slide_dbl(HourlyWindSpeed, mean,
-                .before = 2, .after = 2, .complete = TRUE))
-
-ggplot(data = vaca, aes(x = DATE, y = HourlyWindSpeed)) +
-  geom_line() +
-  geom_smooth(show.legend = TRUE)
-```
-
-
-```{r}
-plot.ts(wind_concord_raw$HourlyWindSpeed)
-plot.ts(wind_sac_raw$HourlyWindSpeed)
-plot.ts(wind_vaca_raw$HourlyWindSpeed)
-```
-
-
-```{r}
-ggplot(data = wind_vaca_raw, aes(x = DATE, y = HourlyWindSpeed)) +
-  geom_line() +
-  geom_smooth(show.legend = TRUE)
-
-```
-```{r}
-wind_filt <- wind_raw %>% 
-  select(DATE, HourlyWindSpeed)
-
-decomp <- as_tsibble(wind_filt) %>% 
-  model(classical_decomposition(HourlyWindSpeed, type = 'additive')) %>% 
-  components()
-
-autoplot(decomp) +
-  labs(title = "Average Wind Speed at Travis Air Force Base, Solano County, California",
-       subtitle = "Classical Decomposition: HourlyWindSpeed = trend + seasonal + random")
 decomp
+
 ```
+
+
+
+
 

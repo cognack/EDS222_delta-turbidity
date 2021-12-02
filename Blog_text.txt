@@ -1,0 +1,34 @@
+---MOTIVATION---
+
+-Importance-
+
+Not all turbidty is created equal. 
+
+
+There's evidence of a decadal decrease in wind speed (Bever et al, 2017) and it's corresponding effects on turbidity from 1995 through 2015 in the San Francisco Estuary. 
+
+In estuaries however, a healthy amount of turbidity in the water column is an important habitat component. Estuaries are known as important spawning and rearing habitat for forage-fish species. 
+
+ The San Francisco Estuary  fish spawn in estuaries and 
+Turbidity in the water column at a healthy dose 
+
+
+BACKGROUND
+
+Turbidity is an important measure of water quality. It indicates the total suspended soilds and is a measure of water clarity.  In freshwater systems, low turbidity is good because it indicates a healthy ecosystem.  High turbidity blocks sunlight from reachiing aquatic plants leading to plant die-offs, it can smother acquatic organisms, and be a vector of contamination when particles, pathogens, and other contaminates like lead or mercury adsorb to suspended solids.
+
+
+---DATA DESCRIPTION---
+
+Area targeted for analysis is the Cache Slough Complex in the upper San Francisco Estuary.  This area includes portions of the Yolo Bypass, a network of major and minor sloughs, and the Sacramento Deepwater Channel (see Figure 1).  A total of Five water quality stations and three wind stations were used in this analysis.  All stations were specifically chosen based on location and data availability.
+
+TURBIDITY & GAGE HEIGHT DATA
+Turbidity and gage height data downloaded from the United States Geological Survey (USGS) via the "dataRetrieval" R library.  Package available on Cran at (https://cran.r-project.org/web/packages/dataRetrieval/). The library pulls hydrologic data from the National Water System Information System (NWIS) via the Water Quality Portal. Area targetedData available in 15-minute intervals. 
+
+https://or.water.usgs.gov/grapher/fnu.html
+
+
+WIND DATA
+
+US Local Climatological Data (LCD) downloaded from NOAA NCEI online portal map tool (https://www.ncdc.noaa.gov/cdo-web/datatools/lcd).  Data includes hourly summaries from airport and other prominent weather stations managed by NWS, FAA, and the DOD.  Hourly data downloaded includes average wind speed and fastest wind speed/direction. Data follows ISO 19115-2  Metadata standards for describing geographic information.  Data downloaded for three stations in proximinty to the Cache Slough Complex.
+
